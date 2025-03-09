@@ -1,0 +1,142 @@
+## 简介
+
+`xv6`采用传统的内核形式，将`kernel`视为一个为运行中的程序提供服务的特殊程序。每个运行中的程序称为进程，进程有包含指令、数据与栈的内存。指令实现程序的计算、数据是计算所作用的变量、栈负责组织程序的过程调用。
+
+![](C:\Users\ASUS\AppData\Roaming\marktext\images\2025-03-09-11-31-57-image.png)
+
+当进程需要调用内核服务，会调用`System call`，进入内核，内核执行服务并返回。因此，进程在用户空间和内核空间之间交替进行。至于权限由硬件部分负责升级或降级。至于`shell`也只是一个普通的用户程序。
+
+![](C:\Users\ASUS\AppData\Roaming\marktext\images\2025-03-09-12-45-03-image.png)
+
+这幅图展示了`xv6`所有的系统调用。
+
+## Processes and memory
+
+## 进程与内存
+
+- 一个`xv6`进程由用户空间内存（指令、数据和栈）和内核私有的进程状态`PID`组成。
+
+- 一个进程可以调用`fork`系统创建一个子进程，其内存内容与调用进程（即父进程）完全相同，但是在不同的寄存器中互不影响。在父进程中，`fork`返回子进程的`PID`，在子进程中，`fork`返回`0`。
+
+- `exec`系统调用将调用进程的内存替换为从文件系统中存储的文件加载的新内存映像。文件需具有特定的格式，指定文件的指令部分、数据部分、以及从哪条指令开始执行等，`xv6`使用`ELF`格式。
+  
+  `xv6 shell`采用这种调用来运行用户程序。主循环用`getcmd`从用户处读取一行输入，然后调用`fork`创建`shell`进程的副本。父进程调用`wait`，子进程运行命令。
+  
+  ```c
+  int
+  main(void)
+  {
+    static char buf[100];
+    int fd;
+  
+    // Ensure that three file descriptors are open.
+    while((fd = open("console", O_RDWR)) >= 0){
+      if(fd >= 3){
+        close(fd);
+        break;
+      }
+    }
+  
+    // Read and run input commands.
+    while(getcmd(buf, sizeof(buf)) >= 0){
+      if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
+        // Chdir must be called by the parent, not the child.
+        buf[strlen(buf)-1] = 0;  // chop \n
+        if(chdir(buf+3) < 0)
+          fprintf(2, "cannot cd %s\n", buf+3);
+        continue;
+      }
+      if(fork1() == 0)
+        runcmd(parsecmd(buf));
+      wait(0);
+    }
+    exit(0);
+  }
+  
+  int
+  fork1(void)
+  {
+    int pid;
+  
+    pid = fork();
+    if(pid == -1)
+      panic("fork");
+    return pid;
+  }
+  ```
+
+## I/O and File descriptors
+
+## I/O和文件描述符
+
+文件描述符是一个小整数，代表一个由内核管理的对象，进程可以从中读取或写入。获取文件描述符的方法有打开文件、目录或设备，创建管道，或复制现有描述符等。我们将文件描述符指向的对象称为“文件”，文件描述符接口抽象了文件、管道与设备之间的差异，使它们看起来都像字节流。
+
+`xv6`使用文件描述符作为每个进程表的索引，因此每个进程都有一个从零开始的私有文件描述符空间。按照惯例，进程从文件描述符0（标准输入）读取，将输出写到文件描述符1（标准输出），并将错误消息写入文件描述符0（标准错误）。`shell`利用这一惯例来实现I/O的重定向与管道。在上面的`main`中可以看到，`shell`会确保它始终有三个文件描述符处于打开状态，默认情况下这些文件描述符被用于控制台。
+
+> 管道（pipe）是一种进程间通信（IPC）机制，允许两个相关进程通过内核管理的缓冲区进行单向数据传递。具体而言，管道是一个由内核维护的缓冲区，表现为一个先进先出（FIFO）的字节队列。管道的一端用于写入数据，另一端用于读取数据，通过文件描述符访问
+
+`read`和`write`系统调用从由文件描述符命名的打开文件中读取字节和写入字节。
+
+调用`read(fd,buf,n)`从文件描述符`fd`中读取最多`n`个字节，将它们复制到`buf`中，并返回读取的字节数。每个引用文件的文件描述符都有一个与之相关的偏移量，`read`从当前文件偏移量读取数据，然后将偏移量向前推进读取的字节数，当没有更多字节可读时，`read`返回`0`指示文件结束。
+
+调用`write(fd,buf,n)`从`buf`向文件描述符`fd`写入`n`字节，并返回写入的字节数。只有在发生错误时，写入的字节数才会小于`n`。另外，`write`同样也有偏移量的概念。
+
+文件描述符和`fork`的交互使得I/O重定向易于实现，`fork`复制父进程的文件描述符表及其内存，系统调用`exec`替换调用进程的内存，但保留其文件表。这样`shell`就可以在子进程中重新打开选定的文件描述符，然后运行新程序，从而实现I/O重定向。
+
+```c
+char *argv[2];
+
+argv[0] = "cat";
+argv[1] = 0;
+if (fork() == 0) {
+    close(0);
+    open("input.txt", 0_RDONLY);
+    exec("cat", argv);
+}
+```
+
+这是`shell`运行命令`cat < input.txt`的简化版本。子进程进入`fork() == 0`，关闭文件描述符`0`，`open`将为新打开的`input.txt`使用该文件描述符，然后执行`cat`，文件描述符`0`（标准输入）指向`input.txt`。
+
+> 在Unix/Linux系统中，文件描述符的分配策略是优先使用当前可用的最小数值的文件描述符。
+
+`xv6 shell`中的I/O重定向代码也是以这种方式工作的：
+
+```c
+case REDIR:
+    rcmd = (struct redircmd*)cmd;  // 将通用命令结构转换为重定向命令结构
+    close(rcmd->fd);               // 关闭原文件描述符
+    if(open(rcmd->file, rcmd->mode) < 0){  // 打开目标文件，复用已关闭的fd
+      fprintf(2, "open %s failed\n", rcmd->file);  // 错误处理
+      exit(1);
+    }
+    runcmd(rcmd->cmd);              // 执行重定向后的实际命令
+    break;
+```
+
+> `open`的第二个参数由一组标志组成，用于控制`open`的行为，在[`fcntl`头文件](xv6-riscv/kernel/fcntl.h at riscv · mit-pdos/xv6-riscv](https://github.com/mit-pdos/xv6-riscv/blob/riscv//kernel/fcntl.h#L1-L5))中定义。O_RDONLY,O_WRONLY,O_RDWR,O_CREATE和O_TRUNC，指示`open`函数如何打开文件，用于读取、写入或是同时进行读取和写入，如果文件不存在则创建文件，将文件截断为零长度。
+
+这里我们可以知道为什么要把`fork`与`exec`分开调用，这样，`shell`可以在不干扰主`shell`的情况下重定向子进程的I/O。
+
+`dup`系统调用复制一个现有的文件描述符，返回一个新的文件描述符，该描述符引用相同的底层I/O对象，两个文件描述符共享一个偏移量，就像由`fork`复制的文件描述符一样。举例来说，以下两段代码的效果是相同的：
+
+```c
+// 1.
+if(fork() == 0) {
+write(1, "hello ", 6);
+exit(0);
+} else {
+wait(0);
+write(1, "world\n", 6);
+}
+
+// 2.
+fd = dup(1);
+write(1, "hello ", 6);
+write(fd, "world\n", 6);
+```
+
+## Pipes
+
+## 管道
+
+
