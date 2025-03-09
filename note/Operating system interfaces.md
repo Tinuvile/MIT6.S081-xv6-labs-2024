@@ -10,6 +10,8 @@
 
 这幅图展示了`xv6`所有的系统调用。
 
+----
+
 ## Processes and memory
 
 ## 进程与内存
@@ -19,55 +21,53 @@
 - 一个进程可以调用`fork`系统创建一个子进程，其内存内容与调用进程（即父进程）完全相同，但是在不同的寄存器中互不影响。在父进程中，`fork`返回子进程的`PID`，在子进程中，`fork`返回`0`。
 
 - `exec`系统调用将调用进程的内存替换为从文件系统中存储的文件加载的新内存映像。文件需具有特定的格式，指定文件的指令部分、数据部分、以及从哪条指令开始执行等，`xv6`使用`ELF`格式。
-  
-  
-  
+
   `xv6 shell`采用这种调用来运行用户程序。主循环用`getcmd`从用户处读取一行输入，然后调用`fork`创建`shell`进程的副本。父进程调用`wait`，子进程运行命令。
-  
-  ```c
-  int
-  main(void)
-  {
-    static char buf[100];
-    int fd;
-  
-    // Ensure that three file descriptors are open.
-    while((fd = open("console", O_RDWR)) >= 0){
-      if(fd >= 3){
-        close(fd);
-        break;
-      }
-    }
-  
-    // Read and run input commands.
-    while(getcmd(buf, sizeof(buf)) >= 0){
-      if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
-        // Chdir must be called by the parent, not the child.
-        buf[strlen(buf)-1] = 0;  // chop \n
-        if(chdir(buf+3) < 0)
-          fprintf(2, "cannot cd %s\n", buf+3);
-        continue;
-      }
-      if(fork1() == 0)
-        runcmd(parsecmd(buf));
-      wait(0);
-    }
-    exit(0);
-  }
-  
-  int
-  fork1(void)
-  {
-    int pid;
-  
-    pid = fork();
-    if(pid == -1)
-      panic("fork");
-    return pid;
-  }
-  ```
 
+```c
+int
+main(void)
+{
+  static char buf[100];
+  int fd;
 
+  // Ensure that three file descriptors are open.
+  while((fd = open("console", O_RDWR)) >= 0){
+    if(fd >= 3){
+      close(fd);
+      break;
+    }
+  }
+
+  // Read and run input commands.
+  while(getcmd(buf, sizeof(buf)) >= 0){
+    if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
+      // Chdir must be called by the parent, not the child.
+      buf[strlen(buf)-1] = 0;  // chop \n
+      if(chdir(buf+3) < 0)
+        fprintf(2, "cannot cd %s\n", buf+3);
+      continue;
+    }
+    if(fork1() == 0)
+      runcmd(parsecmd(buf));
+    wait(0);
+  }
+  exit(0);
+}
+
+int
+fork1(void)
+{
+  int pid;
+
+  pid = fork();
+  if(pid == -1)
+    panic("fork");
+  return pid;
+}
+```
+
+----
 
 ## I/O and File descriptors
 
@@ -75,13 +75,9 @@
 
 文件描述符是一个小整数，代表一个由内核管理的对象，进程可以从中读取或写入。获取文件描述符的方法有打开文件、目录或设备，创建管道，或复制现有描述符等。我们将文件描述符指向的对象称为“文件”，文件描述符接口抽象了文件、管道与设备之间的差异，使它们看起来都像字节流。
 
-
-
 `xv6`使用文件描述符作为每个进程表的索引，因此每个进程都有一个从零开始的私有文件描述符空间。按照惯例，进程从文件描述符0（标准输入）读取，将输出写到文件描述符1（标准输出），并将错误消息写入文件描述符0（标准错误）。`shell`利用这一惯例来实现I/O的重定向与管道。在上面的`main`中可以看到，`shell`会确保它始终有三个文件描述符处于打开状态，默认情况下这些文件描述符被用于控制台。
 
 > 管道（pipe）是一种进程间通信（IPC）机制，允许两个相关进程通过内核管理的缓冲区进行单向数据传递。具体而言，管道是一个由内核维护的缓冲区，表现为一个先进先出（FIFO）的字节队列。管道的一端用于写入数据，另一端用于读取数据，通过文件描述符访问
-
-
 
 `read`和`write`系统调用从由文件描述符命名的打开文件中读取字节和写入字节。
 
@@ -90,8 +86,6 @@
 调用`write(fd,buf,n)`从`buf`向文件描述符`fd`写入`n`字节，并返回写入的字节数。只有在发生错误时，写入的字节数才会小于`n`。另外，`write`同样也有偏移量的概念。
 
 文件描述符和`fork`的交互使得I/O重定向易于实现，`fork`复制父进程的文件描述符表及其内存，系统调用`exec`替换调用进程的内存，但保留其文件表。这样`shell`就可以在子进程中重新打开选定的文件描述符，然后运行新程序，从而实现I/O重定向。
-
-
 
 ```c
 char *argv[2];
@@ -108,8 +102,6 @@ if (fork() == 0) {
 这是`shell`运行命令`cat < input.txt`的简化版本。子进程进入`fork() == 0`，关闭文件描述符`0`，`open`将为新打开的`input.txt`使用该文件描述符，然后执行`cat`，文件描述符`0`（标准输入）指向`input.txt`。
 
 > 在Unix/Linux系统中，文件描述符的分配策略是优先使用当前可用的最小数值的文件描述符。
-
-
 
 `xv6 shell`中的I/O重定向代码也是以这种方式工作的：
 
@@ -129,8 +121,6 @@ case REDIR:
 
 这里我们可以知道为什么要把`fork`与`exec`分开调用，这样，`shell`可以在不干扰主`shell`的情况下重定向子进程的I/O。
 
-
-
 `dup`系统调用复制一个现有的文件描述符，返回一个新的文件描述符，该描述符引用相同的底层I/O对象，两个文件描述符共享一个偏移量，就像由`fork`复制的文件描述符一样。举例来说，以下两段代码的效果是相同的：
 
 ```c
@@ -149,7 +139,7 @@ write(1, "hello ", 6);
 write(fd, "world\n", 6);
 ```
 
-
+---
 
 ## Pipes
 
@@ -190,8 +180,6 @@ if(fork() == 0) {
 
 这也是上面代码中为什么子进程中要特意`close(p[1])`的原因。
 
-
-
 `xv6`的管道实现与之类似：
 
 ```c
@@ -222,8 +210,6 @@ case PIPE:
 
 子进程创建一个管道，然后将管道的左端与右端连接起来。然后分别为管道的左右端调用`fork`和`runcmd`，并等待二者完成。而管道右端的命令可能又会分叉出新的子进程，这样`shell`会创建一个进程树。
 
-
-
 管道的优势相比起临时文件主要有：
 
 - 管道会自动清理自己；
@@ -234,7 +220,7 @@ case PIPE:
 
 - 对于进程间通信，管道的阻塞读写更高效。
 
-
+---
 
 ## File system
 
