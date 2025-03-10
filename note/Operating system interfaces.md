@@ -1,3 +1,5 @@
+# 操作系统接口
+
 ## 简介
 
 `xv6`采用传统的内核形式，将`kernel`视为一个为运行中的程序提供服务的特殊程序。每个运行中的程序称为进程，进程有包含指令、数据与栈的内存。指令实现程序的计算、数据是计算所作用的变量、栈负责组织程序的过程调用。
@@ -21,7 +23,7 @@
 - 一个进程可以调用`fork`系统创建一个子进程，其内存内容与调用进程（即父进程）完全相同，但是在不同的寄存器中互不影响。在父进程中，`fork`返回子进程的`PID`，在子进程中，`fork`返回`0`。
 
 - `exec`系统调用将调用进程的内存替换为从文件系统中存储的文件加载的新内存映像。文件需具有特定的格式，指定文件的指令部分、数据部分、以及从哪条指令开始执行等，`xv6`使用`ELF`格式。
-
+  
   `xv6 shell`采用这种调用来运行用户程序。主循环用`getcmd`从用户处读取一行输入，然后调用`fork`创建`shell`进程的副本。父进程调用`wait`，子进程运行命令。
 
 ```c
@@ -225,3 +227,58 @@ case PIPE:
 ## File system
 
 ## 文件系统
+
+一些相关的命令有：
+
+| `chdir` | `mkdir` | `mknod` | `open("...", 0_CREATE)` |
+| ------- | ------- | ------- |:-----------------------:|
+| 更改当前目录  | 创建新目录   | 创建新设备文件 | 创建新数据文件                 |
+
+举例来说：
+
+```powershell
+mkdir("/dir");
+fd = open("/dir/file", O_CREATE|O_WRONLY);
+close(fd);
+mknod("/console", 1, 1);
+```
+
+> `mknod`创建一个与设备相关的特殊文件，核心目的是在内核中建立设备文件与实际设备驱动的关联。两个参数分别是主设备号和次设备号，它们唯一标识一个内核设备。当进程稍后打开设备文件时，内核会将读写系统调用重定向到内核设备实现，而不是传递给文件系统。
+
+另外，文件名并不等于文件本身。同样的一个底层文件（`inode`）可以有多个名称（`links`），每个`link`由目录中的一个条目组成，该条目包含一个文件名和一个对该`inode`的引用，`inode`保存了文件的元数据，包括类型、目录、设备、长度、在磁盘的位置、`links`数等。
+
+除以上，还有几个重要的系统调用。
+
+- `fstat`系统调用从文件描述符所引用的`inode`中检索信息，这些信息在`stat`结构体中：
+  
+  ```c
+  #define T_DIR     1   // Directory
+  #define T_FILE    2   // File
+  #define T_DEVICE  3   // Device
+  
+  struct stat {
+    int dev;     // File system's disk device
+    uint ino;    // Inode number
+    short type;  // Type of file
+    short nlink; // Number of links to file
+    uint64 size; // Size of file in bytes
+  };
+  ```
+
+- `link`系统调用则创建另一个文件系统名称，指向与现有文件相同的`inode`，例如：
+  
+  ```powershell
+  open("a", O_CREATE|O_WRONLY);
+  link("a", "b");
+  ```
+  
+  `a`和`b`指向同一个文件，对二者操作是一样的。
+
+- `unlink`系统调用从文件系统中移除一个名称。文件的`inode`和磁盘空间只有在文件的`link`计数为零时才会被释放。另外，这是一种常见的方式：
+  
+  ```powershell
+  fd = open("/tmp/xyz", O_CREATE|O_RDWR);
+  unlink("/tmp/xyz");
+  ```
+  
+  用来创建一个没有名称的临时`inode`，当进程关闭文件描述符`fd`或退出时将被清理。
