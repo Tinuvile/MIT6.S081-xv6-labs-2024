@@ -1,4 +1,4 @@
-## sleep(easy)
+## sleep (easy)
 
 > Implement a user-level sleep program for xv6, along the lines of the UNIX sleep command. Your sleep should pause for a user-specified number of ticks. A tick is a notion of time defined by the xv6 kernel, namely the time between two interrupts from the timer chip. Your solution should be in the file user/sleep.c.
 > 
@@ -25,10 +25,10 @@ main(int argc, char *argv[])
 }
 ```
 
-## pingpong(easy)
+## pingpong (easy)
 
 > Write a user-level program that uses xv6 system calls to ''ping-pong'' a byte between two processes over a pair of pipes, one for each direction. The parent should send a byte to the child; the child should print "<pid>: received ping", where <pid> is its process ID, write the byte on the pipe to the parent, and exit; the parent should read the byte from the child, print "<pid>: received pong", and exit. Your solution should be in the file user/pingpong.c.  
-> 编写一个用户级程序，使用 xv6 系统调用在一对管道之间“乒乓”传输一个字节，每个方向一个管道。父进程应向子进程发送一个字节；子进程应打印“: received ping”，其中是其进程 ID，将字节写入管道给父进程，然后退出；父进程应从子进程读取字节，打印“: received pong”，然后退出。你的解决方案应放在文件 user/pingpong.c 中。
+> 编写一个用户级程序，使用 xv6 系统调用在一对管道之间“乒乓”传输一个字节，每个方向一个管道。父进程应向子进程发送一个字节；子进程应打印“pid: received ping”，其中pid是其进程 ID，将字节写入管道给父进程，然后退出；父进程应从子进程读取字节，打印“pid: received pong”，然后退出。你的解决方案应放在文件 user/pingpong.c 中。
 
 ```c
 #include "kernel/types.h"
@@ -94,7 +94,7 @@ main()
 }
 ```
 
-## primes(moderate/hard)
+## primes (moderate/hard)
 
 > Write a concurrent prime sieve program for xv6 using pipes and the design illustrated in the picture halfway down [this page](http://swtch.com/~rsc/thread/) and the surrounding text. This idea is due to Doug McIlroy, inventor of Unix pipes. Your solution should be in the file user/primes.c.  
 > 为 xv6 编写一个并发素数筛程序，使用管道和本页中间图片及周围文字所示的设计。这个想法归功于 Unix 管道的发明者 Doug McIlroy。你的解决方案应该在文件 user/primes.c 中。
@@ -347,7 +347,249 @@ void child(int p[2]) {
 
 错误原因应该在代码的`if (pid == 0)`下的`close(p[0])`这句，关闭原始管道读端并确保子进程中止。
 
-## find(moderate)
+## find (moderate)
 
 > Write a simple version of the UNIX find program for xv6: find all the files in a directory tree with a specific name. Your solution should be in the file user/find.c.  
 > 为 xv6 编写一个简单的 UNIX find 程序版本：在目录树中查找具有特定名称的所有文件。你的解决方案应该在文件 user/find.c 中。
+
+首先理清思路。`main`函数处理入口，主要是判断参数数量是否符合要求，然后进入具体函数执行；`find`函数是提取出来的目录遍历逻辑与递归进入子目录的调用，这部分要求提示我们参照`ls.c`，那么首先阅读`ls.c`：
+
+```c
+void
+ls(char *path)
+{
+  char buf[512], *p;  // 路径缓冲区（最大512字节）
+  int fd;             // 文件描述符
+  struct dirent de;   // 目录条目结构体（DIRSIZ=14字节）
+  struct stat st;     // 文件状态结构体
+
+  // 打开并验证路径
+  if((fd = open(path, O_RDONLY)) < 0){ // 只读模式打开
+    fprintf(2, "ls: cannot open %s\n", path);
+    return;
+  }
+
+  // 获取文件状态
+  if(fstat(fd, &st) < 0){  // 通过文件描述符获取状态
+    fprintf(2, "ls: cannot stat %s\n", path);
+    close(fd);
+    return;
+  }
+
+  // 根据文件类型处理
+  switch(st.type){
+  case T_DEVICE:      // 设备文件
+  case T_FILE:        // 普通文件
+    // 使用 fmtname 格式化文件名后输出元数据
+    printf("%s %d %d %d\n", fmtname(path), st.type, st.ino, (int) st.size);
+    break;
+
+  case T_DIR:         // 目录文件
+    // 检查路径长度是否溢出缓冲区
+    if(strlen(path) + 1 + DIRSIZ + 1 > sizeof buf){
+      printf("ls: path too long\n");
+      break;
+    }
+
+    // 构建基础路径：将原始路径复制到buf，追加'/'
+    strcpy(buf, path);
+    p = buf+strlen(buf);
+    *p++ = '/';       // 现在p指向路径末尾的'/'
+
+    // 遍历目录条目
+    while(read(fd, &de, sizeof(de)) == sizeof(de)){
+      if(de.inum == 0) // 跳过空闲inode条目
+        continue;
+
+      // 拼接完整路径：buf = path + "/" + de.name
+      memmove(p, de.name, DIRSIZ);
+      p[DIRSIZ] = 0;  // 确保字符串终止
+
+      // 获取条目状态并输出
+      if(stat(buf, &st) < 0){
+        printf("ls: cannot stat %s\n", buf);
+        continue;
+      }
+      printf("%s %d %d %d\n", fmtname(buf), st.type, st.ino, (int) st.size);
+    }
+    break;
+  }
+  close(fd); // 关闭文件描述符
+}
+```
+
+`find`的大部分可以参照上面实现。
+
+```c
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+#include "kernel/fs.h"
+#include "kernel/fcntl.h"
+
+void 
+find(char *path, char *target) {
+  char buf[512], *p;
+    int fd;
+    struct dirent de;
+    struct stat st;
+
+    if((fd = open(path, O_RDONLY)) < 0){
+        fprintf(2, "find: cannot open %s\n", path);
+        return;
+    }
+
+    if(fstat(fd, &st) < 0){
+        fprintf(2, "find: cannot stat %s\n", path);
+        close(fd);
+        return;
+    }
+
+    if(st.type != T_DIR){
+        fprintf(2, "find: %s is not a directory\n", path);
+        close(fd);
+        return;
+    }
+
+    strcpy(buf, path);
+    p = buf + strlen(buf);
+    *p++ = '/';
+
+    while(read(fd, &de, sizeof(de)) == sizeof(de)){
+        if(de.inum == 0 || strcmp(de.name, ".") == 0 || strcmp(de.name, "..") == 0)
+            continue;
+
+        memmove(p, de.name, DIRSIZ);
+        p[DIRSIZ] = 0;
+
+        if(stat(buf, &st) < 0){
+            fprintf(2, "find: cannot stat %s\n", buf);
+            continue;
+        }
+
+        // 递归处理目录或匹配文件
+        if(st.type == T_DIR){
+            find(buf, target);  // 递归处理子目录
+        } else if(st.type == T_FILE) {
+            if(strcmp(de.name, target) == 0)  // 精确匹配文件名
+                printf("%s\n", buf);          // 输出完整路径
+        }
+    }
+    close(fd);
+}
+
+int 
+main(int argc, char *argv[]) {
+  if(argc != 3){
+    fprintf(2, "Usage: find <directory> <filename>\n");
+    exit(1);
+  }
+  find(argv[1], argv[2]);
+  exit(0);
+}
+```
+
+运行测试：
+
+```powershell
+xv6 kernel is booting
+
+hart 2 starting
+hart 1 starting
+init: starting sh
+$ echo > b
+$ mkdir a
+$ echo > a/b 
+$ mkdir a/aa
+$ echo > a/aa/b
+$ find . b
+./b
+./a/b
+./a/aa/b
+```
+
+## xargs (moderate)
+
+> Write a simple version of the UNIX xargs program for xv6: its arguments describe a command to run, it reads lines from the standard input, and it runs the command for each line, appending the line to the command's arguments. Your solution should be in the file user/xargs.c.  
+> 为 xv6 编写一个简单的 UNIX xargs 程序版本：其参数描述了要运行的命令，它从标准输入读取行，并为每一行运行命令，将该行附加到命令的参数中。你的解决方案应该在文件 user/xargs.c 中。
+
+首先解析一下命令的输入。在操作系统的视角中，命令行参数和标准输入是两套不同的机制。以这个命令为例：
+
+```bash
+echo hello | xargs echo bye
+```
+
+后面的部分属于命令行参数，通过`argv`数组解析；即`argv[0]` = "xargs"（程序名），`argv[1]` = "echo"（要执行的命令），`argv[2]` = "bye"（命令的初始参数）；而前面的部分通过标准输入读取，即文件描述符`0`，通过管道接受"hello"。
+
+那么在这个函数中我们需要做的，一是检测命令行参数是否足够，二是将命令行与标准输入进行拼接，三是调用子进程并运行命令，使用`exec`函数替换当前进程的镜像为新的程序来运行。
+
+详细的实现如下：
+
+```c
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+#include "kernel/fs.h"
+#include "kernel/fcntl.h"
+#include "kernel/param.h"
+
+#define MAX_LINE 1024
+
+int
+main(int argc, char *argv[]) {
+    if (argc < 2) {
+        fprintf(2, "xargs: not enough arguments\n");
+        exit(1);
+    }
+
+    char line[MAX_LINE];
+    char *cmd_argv[MAXARG];
+    char ch;
+    int pos = 0;
+
+    for (int i = 1; i < argc; i++) {
+        cmd_argv[i - 1] = argv[i];
+    }
+
+    while (read(0, &ch, 1) > 0) {
+        if (ch == '\n') {
+            if (pos == 0) {
+                continue;
+            }
+            line[pos] = 0;
+            cmd_argv[argc - 1] = line;
+            cmd_argv[argc] = 0;
+
+            if (fork() == 0) {
+                exec(cmd_argv[0], cmd_argv);
+                fprintf(2, "xargs: exec %s failed\n", cmd_argv[0]);
+                exit(1);
+            } else {
+                wait(0);
+                pos = 0;
+            }
+        } else {
+            if (pos < MAX_LINE - 1) {
+                line[pos++] = ch;
+            }
+        }
+    }
+    exit(0);
+}
+```
+
+运行测试：
+
+```bash
+xv6 kernel is booting
+
+hart 1 starting
+hart 2 starting
+init: starting sh
+$ sh < xargstest.sh
+$ $ $ $ $ $ hello
+hello
+hello
+```
+
+通过。
