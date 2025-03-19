@@ -612,3 +612,102 @@ $2 = 1
 ```
 
 进程名为`initcode`，进程id为`1`。
+
+### System call tracing ([moderate](https://pdos.csail.mit.edu/6.S081/2024/labs/guidance.html))
+
+> In this assignment you will add a system call tracing feature that may help you when debugging later labs. You'll create a new `trace` system call that will control tracing. It should take one argument, an integer "mask", whose bits specify which system calls to trace. For example, to trace the `fork` system call, a program calls `trace`(1 << `SYS_fork`), where `SYS_fork` is a syscall number from `kernel/syscall.h`. You have to modify the `xv6` kernel to print a line when each system call is about to return, if the system call's number is set in the mask. The line should contain the process id, the name of the system call and the return value; you don't need to print the system call arguments. The `trace` system call should enable tracing for the process that calls it and any children that it subsequently forks, but should not affect other processes. 
+> 在本作业中，您将添加一个系统调用跟踪功能，这可能有助于您在调试后续实验时使用。您将创建一个新的 `trace` 系统调用来控制跟踪。它应该接受一个参数，即一个整数“掩码”，其位指定要跟踪的系统调用。例如，要跟踪 `fork` 系统调用，程序调用 `trace`(1 << `SYS_fork`) ，其中 `SYS_fork` 是来自 `kernel/syscall.h` 的系统调用号。您需要修改 `xv6` 内核，以便在每个系统调用即将返回时，如果系统调用号在掩码中设置，则打印一行。该行应包含进程 ID、系统调用的名称和返回值；您不需要打印系统调用参数。 `trace` 系统调用应为调用它的进程及其随后 fork 的任何子进程启用跟踪，但不应影响其他进程。
+
+首先解决编译问题，在`user/user.h`中添加**prototype**即`int trace(int);`然后在`user/usys.pl`中添加**sub**即`entry("trace");`最后在`kernel/syscall.h`中添加**system call number**即`#define SYS_trace  22`。当然，也别忘了在`Makefile`中添加`$U/_trace`。这样在编译时，`Makefile`会调用 perl 脚本`user/usys.pl`生成`user/usys.S`，即实际的系统调用存根，它们使用**RISC-V**`ecall`指令切换到内核。
+
+
+
+```bash
+$ trace 32 grep hello README
+3: syscall read -> 1023
+3: syscall read -> 971
+3: syscall read -> 298
+3: syscall read -> 0
+$ trace 2147483647 grep hello README
+4: syscall trace -> 0
+4: syscall exec -> 3
+4: syscall open -> 3
+4: syscall read -> 1023
+4: syscall read -> 971
+4: syscall read -> 298
+4: syscall read -> 0
+4: syscall close -> 0
+$ grep hello README
+$ trace 2 usertests forkforkfork
+usertests starting
+6: syscall fork -> 7
+test forkforkfork: 6: syscall fork -> 8
+8: syscall fork -> 9
+9: syscall fork -> 10
+9: syscall fork -> 11
+10: syscall fork -> 12
+9: syscall fork -> 13
+10: syscall fork -> 14
+9: syscall fork -> 15
+10: syscall fork -> 16
+9: syscall fork -> 17
+9: syscall fork -> 18
+11: syscall fork -> 19
+11: syscall fork -> 20
+9: syscall fork -> 21
+10: syscall fork -> 22
+10: syscall fork -> 23
+9: syscall fork -> 24
+10: syscall fork -> 25
+9: syscall fork -> 26
+11: syscall fork -> 27
+9: syscall fork -> 28
+10: syscall fork -> 29
+10: syscall fork -> 30
+9: syscall fork -> 31
+10: syscall fork -> 32
+10: syscall fork -> 33
+10: syscall fork -> 34
+12: syscall fork -> 35
+9: syscall fork -> 36
+9: syscall fork -> 37
+10: syscall fork -> 38
+10: syscall fork -> 39
+10: syscall fork -> 40
+9: syscall fork -> 41
+9: syscall fork -> 42
+10: syscall fork -> 43
+10: syscall fork -> 44
+9: syscall fork -> 45
+9: syscall fork -> 46
+9: syscall fork -> 47
+10: syscall fork -> 48
+9: syscall fork -> 49
+9: syscall fork -> 50
+9: syscall fork -> 51
+9: syscall fork -> 52
+11: syscall fork -> 53
+11: syscall fork -> 54
+9: syscall fork -> 55
+9: syscall fork -> 56
+9: syscall fork -> 57
+9: syscall fork -> 58
+10: syscall fork -> 59
+10: syscall fork -> 60
+10: syscall fork -> 61
+9: syscall fork -> 62
+10: syscall fork -> 63
+10: syscall fork -> 64
+10: syscall fork -> 65
+9: syscall fork -> 66
+10: syscall fork -> 67
+9: syscall fork -> 68
+9: syscall fork -> -1
+10: syscall fork -> -1
+11: syscall fork -> -1
+OK
+6: syscall fork -> 69
+ALL TESTS PASSED
+```
+
+通过测试。
