@@ -620,6 +620,33 @@ $2 = 1
 
 首先解决编译问题，在`user/user.h`中添加**prototype**即`int trace(int);`然后在`user/usys.pl`中添加**sub**即`entry("trace");`最后在`kernel/syscall.h`中添加**system call number**即`#define SYS_trace  22`。当然，也别忘了在`Makefile`中添加`$U/_trace`。这样在编译时，`Makefile`会调用 perl 脚本`user/usys.pl`生成`user/usys.S`，即实际的系统调用存根，它们使用**RISC-V**`ecall`指令切换到内核。
 
+根据提示，先在`kernel/proc.h`的`proc`结构体中加一个跟踪掩码`trace_mask`，然后在`kernel/sysproc.c`中实现系统调用：
+
+```c
+uint64
+sys_trace(void)
+{
+  int mask;
+  argint(0, &mask);
+  myproc()->trace_mask = mask;
+  return 0;
+}
+```
+
+然后再修改`proc.c`中`fork`函数的代码，添加`np->trace_mask = p->trace_mask`，复制跟踪掩码；最后在`kernel/syscall.c`中，先添加一个系统调用名称数组，然后修改`syscall`函数增加打印跟踪输出的部分：
+
+```c
+if(p->trace_mask & (1 << num)) {
+      printf("%d: syscall %s -> %ld\n",
+        p->pid,
+        syscall_names[num],
+        p->trapframe->a0
+      );
+    }
+```
+
+调用已经写好的用户程序`trace.c`进行验证：
+
 ```bash
 $ trace 32 grep hello README
 3: syscall read -> 1023
@@ -709,3 +736,5 @@ ALL TESTS PASSED
 ```
 
 通过测试。
+
+### Attack xv6 ([moderate](https://pdos.csail.mit.edu/6.S081/2024/labs/guidance.html))
