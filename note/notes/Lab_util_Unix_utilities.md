@@ -595,3 +595,14 @@ hello
 通过。
 
 那么这个Lab除了一些拓展练习就全部写完了，拓展练习有时间再写吧。
+
+## Optional challenge exercises
+
+> - Write an uptime program that prints the uptime in terms of ticks using the uptime system call. ([easy](https://pdos.csail.mit.edu/6.S081/2024/labs/guidance.html))  
+>   编写一个 uptime 程序，使用 uptime 系统调用以滴答数打印运行时间。（简单）
+> 
+> - Support regular expressions in name matching for find. grep.c has some primitive support for regular expressions. ([easy](https://pdos.csail.mit.edu/6.S081/2024/labs/guidance.html))  
+>   在名称匹配中支持正则表达式。 grep.c 对正则表达式有一些基本的支持。（简单）
+> 
+> - The xv6 shell (`user/sh.c`) is just another user program. It lacks many features found in real shells, but you can modify and improve it. For example, modify the shell to not print a `$` when processing shell commands from a file ([moderate](https://pdos.csail.mit.edu/6.S081/2024/labs/guidance.html)), modify the shell to support wait ([easy](https://pdos.csail.mit.edu/6.S081/2024/labs/guidance.html)), modify the shell to support tab completion ([easy](https://pdos.csail.mit.edu/6.S081/2024/labs/guidance.html)), modify the shell to keep a history of passed shell commands ([moderate](https://pdos.csail.mit.edu/6.S081/2024/labs/guidance.html)), or anything else you would like your shell to do. (If you are very ambitious, you may have to modify the kernel to support the kernel features you need; xv6 doesn't support much.)  
+>   xv6 shell（ user/sh.c ）只是另一个用户程序。它缺少真实 shell 中的许多功能，但你可以修改和改进它。例如，修改 shell 使其在处理来自文件的 shell 命令时不打印 $ （中等难度），修改 shell 以支持 wait（简单），修改 shell 以支持 tab 补全（简单），修改 shell 以保留已执行 shell 命令的历史记录（中等难度），或者任何你希望 shell 实现的功能。（如果你非常有雄心壮志，你可能需要修改内核以支持你所需的内核功能；xv6 不支持太多功能。）
