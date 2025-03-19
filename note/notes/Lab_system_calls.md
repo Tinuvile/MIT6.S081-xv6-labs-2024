@@ -421,7 +421,7 @@ Thread 2 hit Breakpoint 1, syscall () at kernel/syscall.c:133
 
 输入`layout src`将窗口分为两部分，显示`gdb`在源代码中的位置：
 
-![](C:\Users\ASUS\AppData\Roaming\marktext\images\2025-03-19-14-53-08-image.png)
+![2025-03-19-14-53-08-image.png](../image/2025-03-19-14-53-08-image.png)
 
 `backtrace`打印堆栈回溯：
 
@@ -442,7 +442,7 @@ Thread 2 hit Breakpoint 1, syscall () at kernel/syscall.c:133
 
 输入几次`n`单步执行到`num = p->trapframe->a7`：
 
-![](C:\Users\ASUS\AppData\Roaming\marktext\images\2025-03-19-15-43-35-image.png)
+![2025-03-19-15-43-35-image.png](../image/2025-03-19-15-43-35-image.png)
 
 然后输入`p /x *p`打印当前进程的`proc struct`的十六进制值：
 
@@ -591,11 +591,11 @@ Breakpoint 1 at 0x80001c1e: file kernel/syscall.c, line 138.
 
 设置断点后再运行：
 
-![](C:\Users\ASUS\AppData\Roaming\marktext\images\2025-03-19-19-39-08-image.png)
+![2025-03-19-19-39-08-image.png](../image/2025-03-19-19-39-08-image.png)
 
 指令`lw a3,0(zero)`尝试从地址`0`读取数据，对应代码`num = * (int *) 0`，根据下图`xv6`内核地址空间布局，地址`0`属于未映射区域。
 
-![](C:\Users\ASUS\AppData\Roaming\marktext\images\2025-03-19-19-57-39-image.png)
+![2025-03-19-19-57-39-image.png](../image/2025-03-19-19-57-39-image.png)
 
 再回去看`scause=0xd`（二进制1101），最高位1表示异常，低四位13对应`Load page fault`，而`stval=0x0`记录了故障地址为`0`。这二者结合直接可以验证地址`0`未映射，因为若映射但权限错误会有`scause=0xF`或其他。
 
