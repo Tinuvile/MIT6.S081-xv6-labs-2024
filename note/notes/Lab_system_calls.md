@@ -523,7 +523,7 @@ panic: kerneltrap
 ```asm6502
 // num = p->trapframe->a7;
   num = * (int *) 0;
-    80001c1e:	00002683          	lw	a3,0(zero) # 0 <_entry-0x80000000>
+    80001c1e:    00002683              lw    a3,0(zero) # 0 <_entry-0x80000000>
 ```
 
 这就是崩溃指令，即我们修改的那一行。
@@ -531,17 +531,42 @@ panic: kerneltrap
 > Why does the kernel crash? Hint: look at figure 3-3 in the text; is address 0 mapped in the kernel address space? Is that confirmed by the value in scause above? (See description of scause in [RISC-V privileged instructions](https://pdos.csail.mit.edu/6.S081/2024/labs/n//github.com/riscv/riscv-isa-manual/releases/download/Priv-v1.12/riscv-privileged-20211203.pdf)) 
 > 为什么内核会崩溃？提示：查看文本中的图 3-3；地址 0 在内核地址空间中是否映射？ scause 中的值是否确认了这一点？（参见 RISC-V 特权指令中 scause 的描述）
 
-启动**gdb**，设置断点：
+我们现在需要观察处理器和内核在故障指令处的状态。首先启动**gdb**：
 
 ```bash
 tinuvile@LAPTOP-7PVP3HH3:~/xv6-labs-2024$ make qemu-gdb
+riscv64-unknown-elf-gcc -Wall -Werror -O -fno-omit-frame-pointer -ggdb -gdwarf-2 -DSOL_SYSCALL -DLAB_SYSCALL -MD -mcmodel=medany -fno-common -nostdlib -fno-builtin-strncpy -fno-builtin-strncmp -fno-builtin-strlen -fno-builtin-memset -fno-builtin-memmove -fno-builtin-memcmp -fno-builtin-log -fno-builtin-bzero -fno-builtin-strchr -fno-builtin-exit -fno-builtin-malloc -fno-builtin-putc -fno-builtin-free -fno-builtin-memcpy -Wno-main -fno-builtin-printf -fno-builtin-fprintf -fno-builtin-vprintf -I. -fno-stack-protector -fno-pie -no-pie  -c -o kernel/syscall.o kernel/syscall.c
+riscv64-unknown-elf-ld -z max-page-size=4096 -T kernel/kernel.ld -o kernel/kernel kernel/entry.o kernel/kalloc.o kernel/string.o kernel/main.o kernel/vm.o kernel/proc.o kernel/swtch.o kernel/trampoline.o kernel/trap.o kernel/syscall.o kernel/sysproc.o kernel/bio.o kernel/fs.o kernel/log.o kernel/sleeplock.o kernel/file.o kernel/pipe.o kernel/exec.o kernel/sysfile.o kernel/kernelvec.o kernel/plic.o kernel/virtio_disk.o kernel/start.o kernel/console.o kernel/printf.o kernel/uart.o kernel/spinlock.o
+riscv64-unknown-elf-objdump -S kernel/kernel > kernel/kernel.asm
+riscv64-unknown-elf-objdump -t kernel/kernel | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$/d' > kernel/kernel.sym
 *** Now run 'gdb' in another window.
 qemu-system-riscv64 -machine virt -bios none -kernel kernel/kernel -m 128M -smp 3 -nographic -global virtio-mmio.force-legacy=false -drive file=fs.img,if=none,format=raw,id=x0 -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 -S -gdb tcp::26000
+
+xv6 kernel is booting
+
+hart 1 starting
+hart 2 starting
 ```
 
+在另一个窗口中：
+
 ```bash
-tinuvile@LAPTOP-7PVP3HH3:~$ cd xv6-labs-2024
-tinuvile@LAPTOP-7PVP3HH3:~/xv6-labs-2024$ gdb-multiarch -quiet kernel/kernel
+tinuvile@LAPTOP-7PVP3HH3:~/xv6-labs-2024$ gdb-multiarch kernel/kernel
+GNU gdb (Ubuntu 10.2-0ubuntu1~20.04~1) 10.2
+Copyright (C) 2021 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
 Reading symbols from kernel/kernel...
 warning: File "/home/tinuvile/xv6-labs-2024/.gdbinit" auto-loading has been declined by your `auto-load safe-path' set to "$debugdir:$datadir/auto-load".
 To enable execution of this file add
@@ -553,39 +578,37 @@ line to your configuration file "/home/tinuvile/.gdbinit".
 For more information about this security protection see the
 "Auto-loading safe path" section in the GDB manual.  E.g., run from the shell:
         info "(gdb)Auto-loading safe path"
+(gdb) set architecture riscv:rv64
+The target architecture is set to "riscv:rv64".
 (gdb) target remote localhost:26000
 Remote debugging using localhost:26000
 warning: Architecture rejected target-supplied description
 0x0000000000001000 in ?? ()
-(gdb) file user/_init
-A program is being debugged already.
-Are you sure you want to change the file? (y or n) y
-Architecture of file not recognized.
-(gdb) b *0x80001bfe
-Breakpoint 1 at 0x80001bfe: file kernel/syscall.c, line 79.
+(gdb) b *0x80001c1e
+Breakpoint 1 at 0x80001c1e: file kernel/syscall.c, line 138.
 (gdb) layout asm
 ```
 
+设置断点后再运行：
 
+![](C:\Users\ASUS\AppData\Roaming\marktext\images\2025-03-19-19-39-08-image.png)
 
+指令`lw a3,0(zero)`尝试从地址`0`读取数据，对应代码`num = * (int *) 0`，根据下图`xv6`内核地址空间布局，地址`0`属于未映射区域。
 
+![](C:\Users\ASUS\AppData\Roaming\marktext\images\2025-03-19-19-57-39-image.png)
 
+再回去看`scause=0xd`（二进制1101），最高位1表示异常，低四位13对应`Load page fault`，而`stval=0x0`记录了故障地址为`0`。这二者结合直接可以验证地址`0`未映射，因为若映射但权限错误会有`scause=0xF`或其他。
 
+> What is the name of the process that was running when the kernel paniced? What is its process id (pid)? 
+> 内核恐慌时正在运行的进程名称是什么？它的进程 ID 是什么（ pid ）？
 
+通过命令打印进程名称：
 
+```bnf
+(gdb) p p->name
+$1 = "initcode\000\000\000\000\000\000\000"
+(gdb) p p->pid
+$2 = 1
+```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+进程名为`initcode`，进程id为`1`。
