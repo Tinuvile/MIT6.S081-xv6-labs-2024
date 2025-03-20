@@ -766,13 +766,13 @@ int main(int argc, char *argv[])
 
   // 内存操作：通过sbrk申请32页内存（每页4KB=4096字节）
   char *end = sbrk(PGSIZE*32); // 总申请 32*4096=131072 字节
-  
+
   // 指针运算：将end移动到第9页末尾
   end = end + 9 * PGSIZE;      // 实际偏移 9*4096=36864 字节
 
   // 字符串操作：在end位置写入固定前缀
   strcpy(end, "my very very very secret pw is:   "); // 32字节
-  
+
   // 在偏移32字节处写入用户输入的密码
   strcpy(end+32, argv[1]);     // 拼接用户输入参数
 
@@ -836,7 +836,7 @@ main(int argc, char *argv[])
 }
 ```
 
-但是这种方式一直不对，去自学指南上看了下别人的问答，思路没问题，但是匹配的条件需要放宽一点，匹配一半即可：
+但是这种方式一直不对，去自学指南上看了下别人的问答，整体思路没问题，但是匹配的条件需要放宽一点，匹配一半即可：
 
 ```c
 #include "kernel/types.h"
@@ -880,4 +880,44 @@ $ attacktest
 OK: secret is e.ddfee
 ```
 
+> `user/secret.c` copies the secret bytes to memory whose address is 32 bytes after the start of a page. Change the 32 to 0 and you should see that your attack doesn't work anymore; why not? 
+> `user/secret.c` 将秘密字节复制到页面开始后 32 字节的内存地址。将 32 改为 0，你应该会看到你的攻击不再起作用；为什么？
+
+考虑内存分配和释放的机制，当`secret`进程释放内存时，它们会被添加到空闲链表中，在`xv6`的`kalloc`实现中，`kfree`释放页面时，会在页面起始处存储空闲链表指针`next`，导致`secret`被破坏。而原32字节的偏移位于页面较后位置，避开了`kalloc`的元数据存储区。
+
+```c
+// Free the page of physical memory pointed at by pa,
+// which normally should have been returned by a
+// call to kalloc().  (The exception is when
+// initializing the allocator; see kinit above.)
+void
+kfree(void *pa)
+{
+  struct run *r;
+
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    panic("kfree");
+
+
+#ifndef LAB_SYSCALL
+  // Fill with junk to catch dangling refs.
+  memset(pa, 1, PGSIZE);
+#endif
+  
+  r = (struct run*)pa;
+
+  acquire(&kmem.lock);
+  r->next = kmem.freelist;
+  kmem.freelist = r;
+  release(&kmem.lock);
+}
+```
+
 到此Lab2就做完了。
+
+## Optional challenge exercises
+
+> - Print the system call arguments for traced system calls ([easy](https://pdos.csail.mit.edu/6.S081/2024/labs/guidance.html)). 
+>   打印被跟踪系统调用的参数（简单）。
+> - Find a bug in xv6 that allows an adversary to break process isolation or crash the kernel and let us know. (Side channels such as Meltdown are out of scope, although we will cover them in lecture.) 
+>   在 xv6 中找到一个允许对手破坏进程隔离或使内核崩溃的错误，并告知我们。（诸如 Meltdown 之类的侧信道攻击不在范围内，尽管我们会在讲座中讨论它们。）
