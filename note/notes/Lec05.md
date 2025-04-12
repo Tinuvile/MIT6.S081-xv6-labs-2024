@@ -70,25 +70,25 @@
 uint64
 sys_exit(void)
 {
-    80001cae:	1101                	addi	sp,sp,-32
-    80001cb0:	ec06                	sd	ra,24(sp)
-    80001cb2:	e822                	sd	s0,16(sp)
-    80001cb4:	1000                	addi	s0,sp,32
+    80001cae:    1101                    addi    sp,sp,-32
+    80001cb0:    ec06                    sd    ra,24(sp)
+    80001cb2:    e822                    sd    s0,16(sp)
+    80001cb4:    1000                    addi    s0,sp,32
   int n;
   argint(0, &n);
-    80001cb6:	fec40593          	addi	a1,s0,-20
-    80001cba:	4501                	li	a0,0
-    80001cbc:	ef3ff0ef          	jal	ra,80001bae <argint>
+    80001cb6:    fec40593              addi    a1,s0,-20
+    80001cba:    4501                    li    a0,0
+    80001cbc:    ef3ff0ef              jal    ra,80001bae <argint>
   exit(n);
-    80001cc0:	fec42503          	lw	a0,-20(s0)
-    80001cc4:	f16ff0ef          	jal	ra,800013da <exit>
+    80001cc0:    fec42503              lw    a0,-20(s0)
+    80001cc4:    f16ff0ef              jal    ra,800013da <exit>
   return 0;  // not reached
 }
-    80001cc8:	4501                	li	a0,0
-    80001cca:	60e2                	ld	ra,24(sp)
-    80001ccc:	6442                	ld	s0,16(sp)
-    80001cce:	6105                	addi	sp,sp,32
-    80001cd0:	8082                	ret
+    80001cc8:    4501                    li    a0,0
+    80001cca:    60e2                    ld    ra,24(sp)
+    80001ccc:    6442                    ld    s0,16(sp)
+    80001cce:    6105                    addi    sp,sp,32
+    80001cd0:    8082                    ret
 ```
 
 这里`addi sp,sp,-32`首先对`Stack Pointer`减32，为`Stack Frame`创建了32字节的空间，然后`sd ra,24(sp)`将 Return address 保存在偏移24字节的位置；最后`ld ra,24(sp)`恢复返回地址，然后`addi sp,sp,32`释放栈空间，`ret`退出函数。
@@ -98,41 +98,3 @@ sys_exit(void)
 ## Struct
 
  struct 在内存中是一段连续的地址，可以将其理解成不同字段类型可以不一样的数组。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
