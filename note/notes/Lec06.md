@@ -541,33 +541,3 @@ struct trapframe {
 第一步是切换`page table`，切换到`user page table`；然后将SSCRATCH寄存器恢复成保存好的用户的`a0`寄存器，这里`a0`是`trapframe`的地址。
 
 `sret`是在`kernel`中的最后一条指令，执行完后就会回到`user mode`。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
