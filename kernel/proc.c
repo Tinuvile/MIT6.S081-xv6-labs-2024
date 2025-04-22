@@ -132,6 +132,13 @@ found:
     return 0;
   }
 
+  // Allocate a syscall cache page
+  if ((p->usyscall = (struct usyscall *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -158,6 +165,9 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->usyscall)
+    kfree((void*)p->usyscall);
+  p->usyscall = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -172,7 +182,7 @@ freeproc(struct proc *p)
 }
 
 // Create a user page table for a given process, with no user memory,
-// but with trampoline and trapframe pages.
+// but with trampoline and trapframe pages, and a cache page for syscall like getpid
 pagetable_t
 proc_pagetable(struct proc *p)
 {
@@ -180,29 +190,40 @@ proc_pagetable(struct proc *p)
 
   // An empty page table.
   pagetable = uvmcreate();
-  if(pagetable == 0)
+  if (pagetable == 0)
     return 0;
 
   // map the trampoline code (for system call return)
   // at the highest user virtual address.
   // only the supervisor uses it, on the way
   // to/from user space, so not PTE_U.
-  if(mappages(pagetable, TRAMPOLINE, PGSIZE,
-              (uint64)trampoline, PTE_R | PTE_X) < 0){
-    uvmfree(pagetable, 0);
-    return 0;
+  if (mappages(pagetable, 0, TRAMPOLINE, PGSIZE, (uint64)trampoline, PTE_R | PTE_X) < 0)
+  {
+    goto bad_trampoline;
   }
 
   // map the trapframe page just below the trampoline page, for
   // trampoline.S.
-  if(mappages(pagetable, TRAPFRAME, PGSIZE,
-              (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
-    uvmunmap(pagetable, TRAMPOLINE, 1, 0);
-    uvmfree(pagetable, 0);
-    return 0;
+  if (mappages(pagetable, 0, TRAPFRAME, PGSIZE, (uint64)(p->trapframe), PTE_R | PTE_W) < 0)
+  {
+    goto bad_trapframe;
+  }
+
+  // map the cache page used by syscall
+  if (mappages(pagetable, 0, USYSCALL, PGSIZE, (uint64)(p->usyscall), PTE_R | PTE_U) < 0)
+  {
+    goto bad_usyscall;
   }
 
   return pagetable;
+
+ bad_usyscall:
+  uvmunmap(pagetable, 0, TRAPFRAME, 1, 0);
+ bad_trapframe:
+  uvmunmap(pagetable, 0, TRAMPOLINE, 1, 0);
+ bad_trampoline:
+  uvmfree(pagetable, 0);
+  return 0;
 }
 
 // Free a process's page table, and free the
@@ -210,8 +231,9 @@ proc_pagetable(struct proc *p)
 void
 proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
-  uvmunmap(pagetable, TRAMPOLINE, 1, 0);
-  uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  uvmunmap(pagetable, 0, TRAMPOLINE, 1, 0);
+  uvmunmap(pagetable, 0, TRAPFRAME, 1, 0);
+  uvmunmap(pagetable, 0, USYSCALL, 1, 0);
   uvmfree(pagetable, sz);
 }
 
@@ -250,6 +272,7 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
+  p->usyscall->pid = p->pid;
 
   release(&p->lock);
 }
@@ -309,6 +332,9 @@ fork(void)
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
+
+  // store cache data used by syscall
+  np->usyscall->pid = np->pid;
 
   pid = np->pid;
 
