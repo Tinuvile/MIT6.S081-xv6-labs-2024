@@ -592,21 +592,338 @@ superalloc(void)
 }
 ```
 
-那么`kalloc.c`就修改好了，然后修改`vm.c`的代码。不过这里的修改我会尽量不修改已有函数的定义等（如添加减少参数，修改函数类型之类）。
+那么`kalloc.c`就修改好了，然后修改`vm.c`的代码。
 
-> 这里加了一个`PTE_PS`标志位，标志位的逻辑是如果第一次会在`walk`中`else`进行创建并填充标志位
+首先是`walk()`需要支持超级页：
 
+```c
+pte_t *
+walk(pagetable_t pagetable, uint64 va, int alloc, int plevel)
+{
+  if(va >= MAXVA)
+    panic("walk");
 
+  for(int level = 2; level > plevel; level--) {
+    pte_t *pte = &pagetable[PX(level, va)];
+    if(*pte & PTE_V) {
+      pagetable = (pagetable_t)PTE2PA(*pte);
+#ifdef LAB_PGTBL
+      if(PTE_LEAF(*pte)) {
+        return pte;
+      }
+#endif
+    } else {
+      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
+        return 0;
+      memset(pagetable, 0, PGSIZE);
+      *pte = PA2PTE(pagetable) | PTE_V;
+    }
+  }
+  return &pagetable[PX(plevel, va)];
+}
 
+pte_t *walkpte(pagetable_t pagetable, uint64 va){
+  if(va >= MAXVA)
+    return 0;
 
+  pte_t *pte = 0;
 
+  // try super page firstly
+  pte = walk(pagetable, va, 0, 1);
 
+  if (pte && !PTE_LEAF(*pte)){
+    pte = walk(pagetable, va, 0, 0);
+  }
 
+  return pte;
+}
+```
 
+`mappages()`也根据参数决定使用的页的大小：
 
+```c
+int
+mappages(pagetable_t pagetable, int plevel, uint64 va, uint64 size, uint64 pa, int perm)
+{
+  uint64 a, last;
+  pte_t *pte;
+  uint64 alignment = ALIGNMENT(plevel);
 
+  if((va % alignment) != 0)
+    panic("mappages: va not aligned");
 
+  if((size % alignment) != 0)
+    panic("mappages: size not aligned");
 
+  if(size == 0)
+    panic("mappages: size");
+  
+  a = va;
+  last = va + size - alignment;
+  for(;;){
+    if((pte = walk(pagetable, a, 1, plevel)) == 0)
+      return -1;
+    if(*pte & PTE_V)
+      panic("mappages: remap");
+    *pte = PA2PTE(pa) | perm | PTE_V;
+    if(a == last)
+      break;
+    a += alignment;
+    pa += alignment;
+  }
+  return 0;
+}
+```
+
+`uvmunmap()`的修改类似，不赘述了。`uvmalloc()`要在大于`SUPERPAGE`时分配大页：
+
+```c
+uint64
+uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
+{
+  char *mem;
+  uint64 a;
+  int sz, level;
+  int hassuper = 1;
+
+  if(newsz < oldsz)
+    return oldsz;
+
+  oldsz = PGROUNDUP(oldsz);
+  for(a = oldsz; a < newsz; a += sz){
+    int superpage = hassuper && newsz - a >= SUPERPGSIZE && a % SUPERPGSIZE == 0;
+
+    level = superpage ? 1 : 0;
+    sz = superpage ? SUPERPGSIZE : PGSIZE;
+    mem = superpage ? superalloc() : kalloc();
+
+    // super page failed. cache the result then try normal page
+    if(mem == 0 && superpage){
+      level = 0;
+      sz = PGSIZE;
+      hassuper = 0;
+      mem = kalloc();
+    }
+
+    // still failed
+    if (mem == 0){
+      uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+#ifndef LAB_SYSCALL
+    memset(mem, 0, sz);
+#endif
+    if(mappages(pagetable, level, a, sz, (uint64)mem, PTE_R |PTE_U|xperm) != 0){
+      superpage ? superfree(mem) : kfree(mem);
+      uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+  }
+  return newsz;
+}
+```
+
+`uvmdealloc()`和`uvmfree`也做相应修改，首先尝试超级页：
+
+```c
+uint64
+uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
+{
+  if(newsz >= oldsz)
+    return oldsz;
+
+  uint64 page_size;
+
+  for (uint64 va = PGROUNDUP(newsz); va < PGROUNDUP(oldsz); va += page_size){
+    // try super page firstly
+    page_size = SUPERPGSIZE;
+    int level = 1;
+
+    pte_t *pte = walk(pagetable, va, 0, level);
+
+    if (pte == 0)
+      panic("uvmfree");
+
+    if (!PTE_LEAF(*pte)){
+      page_size = PGSIZE;
+      level = 0;
+    }
+
+    uvmunmap(pagetable, level, va, 1, 1);
+  }
+
+  return newsz;
+}
+
+void
+uvmfree(pagetable_t pagetable, uint64 sz)
+{
+  uint64 page_size;
+  sz = PGROUNDUP(sz);
+
+  for (uint64 va = 0; va < sz; va += page_size){
+    // try super page firstly
+    page_size = SUPERPGSIZE;
+    int level = 1;
+
+    pte_t *pte = walk(pagetable, va, 0, level);
+
+    if (pte == 0)
+      panic("uvmfree");
+
+    if (!PTE_LEAF(*pte)){
+      page_size = PGSIZE;
+      level = 0;
+    }
+
+    uvmunmap(pagetable, level, va, 1, 1);
+  }
+
+  freewalk(pagetable);
+}
+```
+
+`uvmcopy()`同样需要支持超级页，首先尝试超级页，如果发现不是，再改为普通页
+
+```c
+int
+uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+{
+  pte_t* pte;
+  uint64 pa, va, page_size;
+  uint flags;
+  char* mem;
+  int plevel;
+
+  // va indicates such space which have been copied successfully
+  for (va = 0; va < sz; va += page_size)
+  {
+    // try super page firstly
+    page_size = SUPERPGSIZE;
+    plevel = 1;
+    if ((pte = walk(old, va, 0, plevel)) == 0)
+      panic("uvmcopy: pte should exist");
+
+    // try normal page if super page not found
+    if (!PTE_LEAF(*pte))
+    {
+      page_size = PGSIZE;
+      plevel = 0;
+      if ((pte = walk(old, va, 0, plevel)) == 0)
+        panic("uvmcopy: pte should exist");
+    }
+
+    // pte should be valid regardless of normal page or super page
+    if ((*pte & PTE_V) == 0)
+      panic("uvmcopy: page not present");
+
+    // That pte is leaf indicates a 2mega-byte super page.
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+
+    if ((mem = page_size == SUPERPGSIZE ? superalloc() : kalloc()) == 0){
+      goto err;
+    }
+
+    memmove(mem, (char*)pa, page_size);
+
+    if (mappages(new, plevel, va, page_size, (uint64)mem, flags) != 0)
+    {
+      page_size == SUPERPGSIZE ? superfree(mem) : kfree(mem);
+      goto err;
+    }
+  }
+  return 0;
+
+err:
+  for (uint64 free_va = 0; free_va < va; free_va += page_size)
+  {
+    // try super page firstly
+    page_size = SUPERPGSIZE;
+    plevel = 1;
+    pte = walk(new, free_va, 0, plevel);
+
+    // try normal page if super page not found
+    if (!PTE_LEAF(*pte))
+    {
+      page_size = PGSIZE;
+      plevel = 0;
+    }
+
+    uvmunmap(new, plevel, free_va, 1, 1);
+  }
+
+  return -1;
+}
+```
+
+其他就是`proc.c`和`defs.h`、`riscv.h`需要做一些相应的修改。
+
+运行测试：
+
+```bash
+$ pgtbltest
+print_pgtbl starting
+va 0x0 pte 0x21BC7C5B pa 0x86F1F000 perm 0x5B
+va 0x1000 pte 0x21BC7017 pa 0x86F1C000 perm 0x17
+va 0x2000 pte 0x21BC6C07 pa 0x86F1B000 perm 0x7
+va 0x3000 pte 0x21BC68D7 pa 0x86F1A000 perm 0xD7
+va 0x4000 pte 0x0 pa 0x0 perm 0x0
+va 0x5000 pte 0x0 pa 0x0 perm 0x0
+va 0x6000 pte 0x0 pa 0x0 perm 0x0
+va 0x7000 pte 0x0 pa 0x0 perm 0x0
+va 0x8000 pte 0x0 pa 0x0 perm 0x0
+va 0x9000 pte 0x0 pa 0x0 perm 0x0
+va 0xFFFF6000 pte 0x0 pa 0x0 perm 0x0
+va 0xFFFF7000 pte 0x0 pa 0x0 perm 0x0
+va 0xFFFF8000 pte 0x0 pa 0x0 perm 0x0
+va 0xFFFF9000 pte 0x0 pa 0x0 perm 0x0
+va 0xFFFFA000 pte 0x0 pa 0x0 perm 0x0
+va 0xFFFFB000 pte 0x0 pa 0x0 perm 0x0
+va 0xFFFFC000 pte 0x0 pa 0x0 perm 0x0
+va 0xFFFFD000 pte 0x21BD4C13 pa 0x86F53000 perm 0x13
+va 0xFFFFE000 pte 0x21BD00C7 pa 0x86F40000 perm 0xC7
+va 0xFFFFF000 pte 0x2000184B pa 0x80006000 perm 0x4B
+print_pgtbl: OK
+print_kpgtbl starting
+page table 0x0000000086f22000
+ ..0x0000000000000000: pte 0x0000000021bc7801 pa 0x0000000086f1e000
+ .. ..0x0000000000000000: pte 0x0000000021bc7401 pa 0x0000000086f1d000
+ .. .. ..0x0000000000000000: pte 0x0000000021bc7c5b pa 0x0000000086f1f000       
+ .. .. ..0x0000000000001000: pte 0x0000000021bc7017 pa 0x0000000086f1c000       
+ .. .. ..0x0000000000002000: pte 0x0000000021bc6c07 pa 0x0000000086f1b000
+ .. .. ..0x0000000000003000: pte 0x0000000021bc68d7 pa 0x0000000086f1a000       
+ ..0x0000003fc0000000: pte 0x0000000021bc8401 pa 0x0000000086f21000
+ .. ..0x0000003fffe00000: pte 0x0000000021bc8001 pa 0x0000000086f20000
+ .. .. ..0x0000003fffffd000: pte 0x0000000021bd4c13 pa 0x0000000086f53000       
+ .. .. ..0x0000003fffffe000: pte 0x0000000021bd00c7 pa 0x0000000086f40000
+ .. .. ..0x0000003ffffff000: pte 0x000000002000184b pa 0x0000000080006000       
+print_kpgtbl: OK
+superpg_test starting
+superpg_test: OK
+pgtbltest: all tests succeeded
+```
+
+---
+
+## Optional challenge exercises
+
+> - Implement some ideas from the paper referenced above to make your super-page design more real.  
+>   实现上述论文中的一些构想，使你的超级页设计更贴近现实。
+> - Unmap the first page of a user process so that dereferencing a null pointer will result in a fault. You will have to change user.ld to start the user text segment at, for example, 4096, instead of 0.  
+>   取消映射用户进程的第一页，这样解引用空指针将导致错误。你需要修改 user.ld ，使用户文本段从例如 4096 开始，而非 0。
+> - Add a system call that reports dirty pages (modified pages) using PTE_D.  
+>   添加一个系统调用，使用 PTE_D 报告脏页（被修改过的页面）。
+
+---
+
+## 总结
+
+这个Lab是我目前花时间最长的，一方面涉及到的需要改的代码比较多，另外对内存这块之前的掌握确实还不太好。
+
+实际的操作系统会动态将标准页面提升为超级页，具体可以看看这篇[navarro.pdf](https://www.usenix.org/legacy/events/osdi02/tech/full_papers/navarro/navarro.pdf)论文。
+
+> **TLB**（Translation Lookaside Buffer）是缓存页表项的硬件结构。使用超级页后，单次TLB条目可以覆盖更大内存，降低TLB缺失率，加速地址翻译。例如1个2MB超级页就相当于512个4KB页，相当于TLB条目减少了512倍。
 
 
 
