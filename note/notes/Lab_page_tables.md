@@ -1,9 +1,3 @@
-**注：本次Lab中第二个问题没有经过测试，不保证正确性** 。
-
-另外，这次是按照课表，看完Lecture5再来做的，隔的有点久，感觉内存方面的代码都忘差不多了。第三题😢，Debug好久。
-
----
-
 ## 切换分支
 
 首先切换到`pgtbl`分支：
@@ -657,7 +651,7 @@ mappages(pagetable_t pagetable, int plevel, uint64 va, uint64 size, uint64 pa, i
 
   if(size == 0)
     panic("mappages: size");
-  
+
   a = va;
   last = va + size - alignment;
   for(;;){
@@ -924,35 +918,3 @@ pgtbltest: all tests succeeded
 实际的操作系统会动态将标准页面提升为超级页，具体可以看看这篇[navarro.pdf](https://www.usenix.org/legacy/events/osdi02/tech/full_papers/navarro/navarro.pdf)论文。
 
 > **TLB**（Translation Lookaside Buffer）是缓存页表项的硬件结构。使用超级页后，单次TLB条目可以覆盖更大内存，降低TLB缺失率，加速地址翻译。例如1个2MB超级页就相当于512个4KB页，相当于TLB条目减少了512倍。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
