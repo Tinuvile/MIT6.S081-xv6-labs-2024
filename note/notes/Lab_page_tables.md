@@ -1,4 +1,8 @@
-**注：本次Lab中第二个问题没有经过测试，不保证正确性** 
+**注：本次Lab中第二个问题没有经过测试，不保证正确性** 。
+
+另外，这次是按照课表，看完Lecture5再来做的，隔的有点久，感觉内存方面的代码都忘差不多了。第三题😢，Debug好久。
+
+---
 
 ## 切换分支
 
@@ -346,73 +350,55 @@ freewalk(pagetable_t pagetable)
 }
 ```
 
-这个函数主要教我们如何遍历所有PTE。容易想到写一个递归函数来逐层输出：
+这里因为之前读源码不仔细，有几个关键的宏没注意到
 
 ```c
 #ifdef LAB_PGTBL
-void vmprint_recursive(pagetable_t pagetable, int level, uint64 vaddr) {
-  static char *indent = "  ..";
+void
+vmprint_recursive(pagetable_t pagetable, uint64 level, uint64 base_va){
+    for(uint64 i = 0; i < 512; i++){
+      pte_t pte = pagetable[i];
+      if (!(pte & PTE_V))
+        continue;
 
-  for (int i = 0; i < 512; i++) {
-    pte_t pte = pagetable[i];
-    if (pte & PTE_V) {
-      uint64 curr_vaddr = vaddr | ((uint64) i << (12 + 9 * (2 - level)));
-      for (int j = 0; j < 2 - level; j++) {
-        printf("%s", indent);
+      for (uint64 i = 3; i > level; --i){
+        printf(" ..");
       }
-      printf("0x%lx: pte %lx pa %lx\n", curr_vaddr, pte, PTE2PA(pte));
-      if ((pte & (PTE_R|PTE_W|PTE_X)) == 0) {
-        vmprint_recursive((pagetable_t)PTE2PA(pte), level-1, curr_vaddr);
+
+      uint64 va = base_va;
+      va |= (i & PXMASK) << PXSHIFT(level);
+      printf("%p: pte %p pa %p\n", (void*)va, (void*)pte, (void*)PTE2PA(pte));
+
+      if (!PTE_LEAF(pte)){
+        vmprint_recursive((pagetable_t)PTE2PA(pte), level - 1, va);
       }
     }
-  }
 }
 
 void
 vmprint(pagetable_t pagetable) {
-  // your code here
-  printf("page table: %p\n", pagetable);
+  printf("page table %p\n", pagetable);
   vmprint_recursive(pagetable, 2, 0);
 }
 #endif
 ```
 
-代码的核心部分是虚拟地址的计算：
-
-```c
-uint64 curr_vaddr = vaddr | ((uint64) i << (12 + 9 * (2 - level)));
-```
-
-根据前面所学，虚拟地址分为四级：
-
-- L2索引（9位）：对应虚拟地址的位38-30（最高级页表）；
-
-- L1索引（9位）：对应虚拟地址的位29-21（中间级页表）；
-
-- L0索引（9位）：对应虚拟地址的位20-12（最低级页表）；
-
-- 页内偏移（12位）：对应虚拟地址的位11-0。
-
-根据层级`level`确定索引`i`在虚拟地址中的位置，`(12 + 9 * (2 - level))`为左移位数。然后将索引的位域合并到基础地址`vaddr`中，生成下一级页表或页的虚拟地址。
-
-宏定义`#define PTE2PA(pte) (((pte) >> 10) << 12)`会将页表项转化为物理地址PA。先右移10位，去除PTE的低10位标志位，然后左移12位，将剩余的44位物理页号转换为56位物理地址。
-
 测试：
 
 ```bash
 print_kpgtbl starting
-page table: 0x0000000087f22000
-0x0: pte 21fc7801 pa 87f1e000
-  ..0x0: pte 21fc7401 pa 87f1d000
-  ..  ..0x0: pte 21fc7c5b pa 87f1f000
-  ..  ..0x40000000: pte 21fc7017 pa 87f1c000
-  ..  ..0x80000000: pte 21fc6c07 pa 87f1b000
-  ..  ..0xc0000000: pte 21fc68d7 pa 87f1a000
-0xff000: pte 21fc8401 pa 87f21000
-  ..0x3feff000: pte 21fc8001 pa 87f20000
-  ..  ..0x7f7feff000: pte 21fd4413 pa 87f51000
-  ..  ..0x7fbfeff000: pte 21fd00c7 pa 87f40000
-  ..  ..0x7fffeff000: pte 2000184b pa 80006000
+page table 0x0000000087f22000
+ ..0x0000000000000000: pte 0x0000000021fc7801 pa 0x0000000087f1e000
+ .. ..0x0000000000000000: pte 0x0000000021fc7401 pa 0x0000000087f1d000
+ .. .. ..0x0000000000000000: pte 0x0000000021fc7c5b pa 0x0000000087f1f000       
+ .. .. ..0x0000000000001000: pte 0x0000000021fc7017 pa 0x0000000087f1c000       
+ .. .. ..0x0000000000002000: pte 0x0000000021fc6c07 pa 0x0000000087f1b000       
+ .. .. ..0x0000000000003000: pte 0x0000000021fc68d7 pa 0x0000000087f1a000
+ ..0x0000003fc0000000: pte 0x0000000021fc8401 pa 0x0000000087f21000
+ .. ..0x0000003fffe00000: pte 0x0000000021fc8001 pa 0x0000000087f20000
+ .. .. ..0x0000003fffffd000: pte 0x0000000021fd4413 pa 0x0000000087f51000       
+ .. .. ..0x0000003fffffe000: pte 0x0000000021fd00c7 pa 0x0000000087f40000       
+ .. .. ..0x0000003ffffff000: pte 0x000000002000184b pa 0x0000000080006000       
 print_kpgtbl: OK
 ```
 
@@ -430,6 +416,8 @@ print_kpgtbl: OK
 > 
 > Your job is to modify the xv6 kernel to use superpages. In particular, if a user program calls sbrk() with a size of 2 megabytes or more, and the newly created address range includes one or more areas that are two-megabyte-aligned and at least two megabytes in size, the kernel should use a single superpage (instead of hundreds of ordinary pages). You will receive full credit for this part of the lab if the superpg_test test case passes when running pgtbltest. 
 > 你的任务是修改 xv6 内核以使用超级页。具体来说，如果用户程序调用 sbrk()时请求的大小为 2MB 或更大，且新创建的地址范围包含一个或多个 2MB 对齐且至少 2MB 大小的区域，内核应使用单个超级页（而非数百个普通页）。当运行 pgtbltest 时，若 superpg_test 测试用例通过，你将获得这部分实验的满分。
+
+做这个前先回去看**Chapter3**复习一下。
 
 根据提示先阅读`user/pgtbltest.c`中的`superpg_test`函数：
 
@@ -512,40 +500,7 @@ int growproc(int n)
 }
 ```
 
-其中`vm.c`的`uvmalloc`函数用于扩展用户进程的内存空间、分配物理内存并建立页表映射：
-
-```c
-uint64
-uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
-{
-  char *mem;
-  uint64 a;
-  int sz;
-
-  if(newsz < oldsz)          // 如果新尺寸更小，直接返回原尺寸
-    return oldsz;
-
-  oldsz = PGROUNDUP(oldsz);  // 将旧尺寸对齐到页边界
-  for(a = oldsz; a < newsz; a += sz){ // 逐页扩展内存
-    sz = PGSIZE;             // 每次处理一个页面
-    mem = kalloc();          // 分配物理页
-    if(mem == 0){
-      uvmdealloc(pagetable, a, oldsz); // 分配失败时回滚
-      return 0;
-    }
-#ifndef LAB_SYSCALL          // 非系统调用实验时清零页面
-    memset(mem, 0, sz);
-#endif
-    // 建立页表映射，权限=用户可读+用户权限位+额外权限
-    if(mappages(pagetable, a, sz, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
-      kfree(mem);            // 映射失败时释放内存
-      uvmdealloc(pagetable, a, oldsz);
-      return 0;
-    }
-  }
-  return newsz;              // 返回新的内存尺寸
-}
-```
+其中`vm.c`的`uvmalloc`函数用于扩展用户进程的内存空间、分配物理内存并建立页表映射。
 
 总体调用路径大致如下：
 
@@ -557,188 +512,105 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
 → mappages()/uvmunmap()
 ```
 
-我们根据提示，先修改`kalloc.c`。读一下`kalloc.c`的代码：
+但我们从`kalloc.c`开始写。这部分代码是关于`xv6`的物理内存管理的。
+
+首先在结构体里加一个空闲超级页链表：
 
 ```c
-// 全局内存管理结构
 struct {
-  struct spinlock lock;   // 保护空闲链表的自旋锁
-  struct run *freelist;   // 空闲页链表头指针
-  struct run *super_freelist;  // 新增大页空闲链表
+  struct spinlock lock;
+  struct run *freelist;
+  struct run *superfreelist;
 } kmem;
 ```
 
-这里需要新增大页空闲链表。
-
-然后在`kinit`中预留几块2MB的物理内存区域，我这里预留了两个2MB大页：
+然后修改`kinit()`初始化，其中`SUPERBEGIN`需要在`memlayout.h`中定义，这里我定义的是`#define SUPERBEGIN (PHYSTOP - 16*1024*1024)`。
 
 ```c
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
-
-  // Superalloc
-  char *p = (char*)PGROUNDUP((uint64)end);
-  for (int i = 0; i < 2; i++) {
-    if ((uint64)p + 2*1024*1024 <= PHYSTOP) {
-      superfree(p);
-      p += 2*1024*1024;
-    }
-  }
+  freerange(end, (void*)SUPERBEGIN);
+  superfreerange((void*)SUPERBEGIN, (void*)PHYSTOP);
 }
 ```
 
-修改`freerange`函数，跳过作为大页分配的区域，避免重复释放：
+`superfreerange`仿照`freerange`写即可：
 
 ```c
 void
-freerange(void *pa_start, void *pa_end)
+superfreerange(void *pa_start, void *pa_end)
 {
   char *p;
-  p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
-  if ((uint64)p % (2*1024*1024) != 0) { // 加一个条件判断
-    kfree(p);
-  }
+  p = (char*)SUPERPGROUNDUP((uint64)pa_start);
+  for(; p + SUPERPGSIZE <= (char*)pa_end; p += SUPERPGSIZE)
+    superfree(p);
 }
 ```
 
-并创建`superalloc()`和`superfree()`函数来管理这些2MB的物理内存块。
+`superfree`也仿照着写：
+
+```c
+void
+superfree(void *pa)
+{
+  struct run *r;
+
+  if(((uint64)pa % SUPERPGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    panic("ksuperfree");
+
+  // Fill with junk to catch dangling refs.
+  memset(pa, 1, SUPERPGSIZE);
+
+  r = (struct run*)pa;
+
+  acquire(&kmem.lock);
+  r->next = kmem.superfreelist;
+  kmem.superfreelist = r;
+  release(&kmem.lock);
+}
+```
+
+`superalloc`一样：
 
 ```c
 void *
-superalloc() {
+superalloc(void)
+{
   struct run *r;
 
   acquire(&kmem.lock);
-  r = kmem.super_freelist;
+  r = kmem.superfreelist;
   if(r)
-    kmem.super_freelist = r->next;
+    kmem.superfreelist = r->next;
   release(&kmem.lock);
 
   if(r)
-    memset((char*)r, 5, PGSIZE*512); // fill with junk
+    memset((char*)r, 5, SUPERPGSIZE); // fill with junk
   return (void*)r;
 }
-
-void
-superfree(void *pa) {
-  struct run *r;
-
-  if (((uint64)pa % (PGSIZE*512)) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP) {
-    panic("superfree");
-  }
-
-  memset(pa, 1, PGSIZE*512);
-
-  r = (struct run*)pa;
-  acquire(&kmem.lock);
-  r->next = kmem.super_freelist;
-  kmem.super_freelist = r;
-  release(&kmem.lock);
-}
 ```
 
-然后修改列表遍历，先在`riscv.h`中添加`#define PTE_S (1L << 9)`，然后在`vm.c`中修改`walk`函数：
+那么`kalloc.c`就修改好了，然后修改`vm.c`的代码。不过这里的修改我会尽量不修改已有函数的定义等（如添加减少参数，修改函数类型之类）。
 
-```c
-// Return the address of the PTE in page table pagetable
-// that corresponds to virtual address va.  If alloc!=0,
-// create any required page-table pages.
-//
-// The risc-v Sv39 scheme has three levels of page-table
-// pages. A page-table page contains 512 64-bit PTEs.
-// A 64-bit virtual address is split into five fields:
-//   39..63 -- must be zero.
-//   30..38 -- 9 bits of level-2 index.
-//   21..29 -- 9 bits of level-1 index.
-//   12..20 -- 9 bits of level-0 index.
-//    0..11 -- 12 bits of byte offset within the page.
-pte_t *
-walk(pagetable_t pagetable, uint64 va, int alloc)
-{
-  if(va >= MAXVA)
-    panic("walk");
+> 这里加了一个`PTE_PS`标志位，标志位的逻辑是如果第一次会在`walk`中`else`进行创建并填充标志位
 
-  for(int level = 2; level > 0; level--) {
-    pte_t *pte = &pagetable[PX(level, va)];
-    if(*pte & PTE_V) {
-      if (level == 1 && (*pte & PTE_S)) { // 检查是否是大页标记
-        return pte;  // 返回大页pte
-      }
-      pagetable = (pagetable_t)PTE2PA(*pte);
-#ifdef LAB_PGTBL
-      if(PTE_LEAF(*pte)) {
-        return pte;
-      }
-#endif
-    } else {
-      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
-        return 0;
-      memset(pagetable, 0, PGSIZE);
-      *pte = PA2PTE(pagetable) | PTE_V;
-    }
-  }
-  return &pagetable[PX(0, va)];
-}
-```
 
-接下来，同样根据提示，`uvmcopy`和`uvmunmap`需要处理超级页。`uvmcopy`在复制父进程页表时，如果遇到超级页需要整个复制，`uvmunmap`在解除映射时，需要识别超级页并正确释放物理内存。
 
-```c
 
-```
 
-最后修改`uvmalloc`函数。检查是否有足够的连续2MB对齐的虚拟地址空间，并尝试分配超级页：
 
-```c
-// Allocate PTEs and physical memory to grow process from oldsz to
-// newsz, which need not be page aligned.  Returns new size or 0 on error.
-uint64
-uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
-{
-  char *mem;
-  uint64 a;
-  int sz;
 
-  if(newsz < oldsz)
-    return oldsz;
 
-  oldsz = PGROUNDUP(oldsz);
 
-  if ((newsz - oldsz) >= (2 << 20) && (oldsz % (2 << 20)) == 0) {
-    void *mem = superalloc();
-    if (mem) {
-      uint64 a = PGROUNDUP(oldsz);
-      if(mappages(pagetable, a, 2 << 20, (uint64)mem, 
-                 PTE_R | PTE_U | xperm | PTE_V | PTE_S) == 0) {
-        return a + (2 << 20);
-      }
-      superfree(mem);
-    }
-  }
 
-  for(a = oldsz; a < newsz; a += sz){
-    sz = PGSIZE;
-    mem = kalloc();
-    if(mem == 0){
-      uvmdealloc(pagetable, a, oldsz);
-      return 0;
-    }
-#ifndef LAB_SYSCALL
-    memset(mem, 0, sz);
-#endif
-    if(mappages(pagetable, a, sz, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
-      kfree(mem);
-      uvmdealloc(pagetable, a, oldsz);
-      return 0;
-    }
-  }
-  return newsz;
-}
-```
+
+
+
+
+
+
 
 
 

@@ -123,7 +123,7 @@ case REDIR:
     break;
 ```
 
-> `open`的第二个参数由一组标志组成，用于控制`open`的行为，在[`fcntl`头文件](xv6-riscv/kernel/fcntl.h at riscv · mit-pdos/xv6-riscv](https://github.com/mit-pdos/xv6-riscv/blob/riscv//kernel/fcntl.h#L1-L5))中定义。O_RDONLY,O_WRONLY,O_RDWR,O_CREATE和O_TRUNC，指示`open`函数如何打开文件，用于读取、写入或是同时进行读取和写入，如果文件不存在则创建文件，将文件截断为零长度。
+> `open`的第二个参数由一组标志组成，用于控制`open`的行为，在[`fcntl`头文件](https://github.com/mit-pdos/xv6-riscv/blob/riscv//kernel/fcntl.h#L1-L5)中定义。O_RDONLY,O_WRONLY,O_RDWR,O_CREATE和O_TRUNC，指示`open`函数如何打开文件，用于读取、写入或是同时进行读取和写入，如果文件不存在则创建文件，将文件截断为零长度。
 
 这里我们可以知道为什么要把`fork`与`exec`分开调用，这样，`shell`可以在不干扰主`shell`的情况下重定向子进程的I/O。
 
