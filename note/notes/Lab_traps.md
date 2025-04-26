@@ -212,9 +212,7 @@ tinuvile@LAPTOP-7PVP3HH3:~/xv6-labs-2024$ addr2line -e kernel/kernel
 > In this exercise you'll add a feature to xv6 that periodically alerts a process as it uses CPU time. This might be useful for compute-bound processes that want to limit how much CPU time they chew up, or for processes that want to compute but also want to take some periodic action. More generally, you'll be implementing a primitive form of user-level interrupt/fault handlers; you could use something similar to handle page faults in the application, for example. Your solution is correct if it passes alarmtest and 'usertests -q'  
 > 在本练习中，您将为 xv6 添加一项功能，定期提醒进程其 CPU 使用时间。这对于希望限制 CPU 占用时间的计算密集型进程，或既需计算又想定期执行其他操作的进程非常有用。更广泛地说，您将实现一种用户级中断/故障处理程序的初级形式；例如，您可以使用类似机制处理应用程序中的页面错误。若您的解决方案能通过 alarmtest 和'usertests -q'测试，则视为正确。
 
-
-
-
+先搭一下框架：需要改
 
 
 
