@@ -16,8 +16,6 @@ void kernelvec();
 
 extern int devintr();
 
-static int useralarm(struct proc *p);
-
 void
 trapinit(void)
 {
@@ -70,8 +68,17 @@ usertrap(void)
   } else if((which_dev = devintr()) != 0){
     // ok
 
-    if(which_dev == 2)
-      useralarm(p);
+    if(which_dev == 2){
+      if(p->alarm_interval > 0 && p->alarm_handler_running == 0) {
+        p->alarm_counter++;
+        if(p->alarm_counter >= p->alarm_interval) {
+        memmove(p->alarm_trapframe, p->trapframe, sizeof(struct trapframe));
+        p->trapframe->epc = p->alarm_handler;
+        p->alarm_counter = 0;
+        p->alarm_handler_running = 1;
+        }
+      }
+    }
   } else {
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
@@ -221,8 +228,3 @@ devintr()
   }
 }
 
-static int
-useralarm(struct proc *p)
-{
-  
-}
