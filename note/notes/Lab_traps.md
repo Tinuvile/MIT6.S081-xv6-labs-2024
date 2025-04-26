@@ -212,7 +212,223 @@ tinuvile@LAPTOP-7PVP3HH3:~/xv6-labs-2024$ addr2line -e kernel/kernel
 > In this exercise you'll add a feature to xv6 that periodically alerts a process as it uses CPU time. This might be useful for compute-bound processes that want to limit how much CPU time they chew up, or for processes that want to compute but also want to take some periodic action. More generally, you'll be implementing a primitive form of user-level interrupt/fault handlers; you could use something similar to handle page faults in the application, for example. Your solution is correct if it passes alarmtest and 'usertests -q'  
 > 在本练习中，您将为 xv6 添加一项功能，定期提醒进程其 CPU 使用时间。这对于希望限制 CPU 占用时间的计算密集型进程，或既需计算又想定期执行其他操作的进程非常有用。更广泛地说，您将实现一种用户级中断/故障处理程序的初级形式；例如，您可以使用类似机制处理应用程序中的页面错误。若您的解决方案能通过 alarmtest 和'usertests -q'测试，则视为正确。
 
-先搭一下框架：需要改
+先做**test0: invoke handler**的部分。
+
+在`user.h`中填入声明并更新`user/usys.pl`、`kernel/syscall.h`、和`kernel/syscall.c`。允许`alarmtest`调用`sigalarm`和`sigreturn`系统调用。
+
+然后在`struct proc`中添加新字段，分别记录警报间隔、自上次调用进程警报处理函数的时钟滴答数 ticks 和处理函数的指针。并在`proc.c/allocproc()`中初始化这些字段。
+
+```c
+int alarm_interval;          // Alarm interval
+int alarm_counter;           // Alarm counter
+uint64 alarm_handler;        // Alarm handler
+```
+
+函数实现：
+
+```c
+uint64
+sys_sigalarm(void)
+{
+  int interval;
+  argint(0, &interval);
+  if(interval < 0)
+    return -1;
+
+  uint64 handler;
+  argaddr(1, &handler);
+
+  struct proc *p = myproc();
+  p->alarm_counter = 0;
+  p->alarm_interval = interval;
+  p->alarm_handler = handler;
+
+  return 0;
+}
+
+uint64
+sys_sigreturn(void)
+{
+  return 0;
+}
+```
+
+对于每个 ticks，硬件时钟会强制触发一个中断，由`usertrap()`处理。接下来修改`usertrap()`，使它能处理进程警报间隔到期的情况。
+
+```c
+if(which_dev == 2)
+  useralarm(p);
+```
+
+`useralarm`的逻辑即为每次增加`alarm_count`。当它到期，设置`p->trapframe->epc`到处理函数地址，使进程从内核返回后可以执行这个函数。
+
+```c
+static int
+useralarm(struct proc *p)
+{
+  if (p->alarm_interval == 0)
+    return 0;
+
+  p->alarm_counter++;
+  if (p->alarm_counter == p->alarm_interval)
+  {
+    p->alarm_counter = 0;
+    p->trapframe->epc = (uint64) p->alarm_handler;
+    p->alarm_interval = 0;
+    p->alarm_handler = 0;
+  }
+
+  return 0;
+}
+```
+
+尝试运行一下测试：
+
+```bash
+xv6 kernel is booting
+
+hart 1 starting
+hart 2 starting
+init: starting sh
+$ alarmtest
+test0 start
+....................................................................alarm!
+test0 passed
+test1 start
+......alarm!
+..................................................................................................................................................................................................
+test1 failed: too few calls to the handler
+test2 start
+...................................................alarm!
+test2 passed
+test3 start
+test3 passed
+```
+
+根据文档提示继续往下，这些问题可能都是因为没有确保当警报处理程序完成后，控制权返回到用户程序最初被定时器中断打断的那条指令。
+
+解决方案是：用户警报程序在完成时必须调用`sigreturn`系统调用来使用户进程在处理好警报后可以正确恢复执行。另外要让`usertrap`在`struct proc`中保存需要的寄存器以及其他信息。
+
+在`struct proc`中添加两个字段，分别保存触发前用户程序计数器的值和一些寄存器。
+
+```c
+uint64 alarm_epc;            // Alarm epc
+int alarm_handler_running;   // Alarm handler running
+struct trapframe *alarm_trapframe; // Alarm trapframe
+```
+
+在`allocproc`和`freeproc`中需要添加`alarm_trapframe`的管理代码。
+
+然后来写`sigreturn`的逻辑，用`memmove`恢复全部寄存器。
+
+```c
+uint64
+sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+
+  if(p->alarm_handler_running == 0)
+    return -1;
+
+  memmove(p->trapframe, p->alarm_trapframe, sizeof(struct trapframe));
+
+  p->alarm_handler_running = 0;
+
+  return p->trapframe->a0;
+}
+```
+
+`trap.c`也做了一点修改。
+
+```c
+if(which_dev == 2){
+      if(p->alarm_interval > 0 && p->alarm_handler_running == 0) {
+        p->alarm_counter++;
+        if(p->alarm_counter >= p->alarm_interval) {
+        memmove(p->alarm_trapframe, p->trapframe, sizeof(struct trapframe));
+        p->trapframe->epc = p->alarm_handler;
+        p->alarm_counter = 0;
+        p->alarm_handler_running = 1;
+        }
+      }
+    }
+```
+
+再运行测试：
+
+```bash
+xv6 kernel is booting
+
+hart 1 starting
+hart 2 starting
+init: starting sh
+$ alarmtest
+test0 start
+........................................................alarm!
+test0 passed
+test1 start
+......alarm!
+.....alarm!
+.....alarm!
+.....alarm!
+.....alarm!
+.....alarm!
+.....alarm!
+......alarm!
+.....alarm!
+.....alarm!
+test1 passed
+test2 start
+........................................................................alarm!
+test2 passed
+test3 start
+test3 passed
+```
+
+通过。`usertests -q`也没啥问题。
+
+## Optional challenge exercises
+
+> Print the names of the functions and line numbers in backtrace() instead of numerical addresses ([hard](https://pdos.csail.mit.edu/6.S081/2024/labs/guidance.html)).  
+> 打印 backtrace() 中的函数名和行号，而非数字地址（困难）。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
