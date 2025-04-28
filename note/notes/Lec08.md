@@ -120,7 +120,7 @@ panic: uvmunmap: not mapped
 
 ```asm6502
 hp->s.size = nu;
-    11ae:	01652423          	sw	s6,8(a0)
+    11ae:    01652423              sw    s6,8(a0)
 ```
 
 可以看到这确实是一个`store`指令，另外还能注意到这个`page fault`出现在`malloc`的汇编代码中。在`malloc`中会用`sbrk`系统调用来获得一些内存，然后初始化刚刚获取的内存，在`0x11ae`位置刚刚获取的内存中写入数据，但实际上是在向未分配的内存写入数据。
@@ -141,10 +141,10 @@ usertrap(void)
   w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
-  
+
   // save user program counter.
   p->trapframe->epc = r_sepc();
-  
+
   if(r_scause() == 8){
     // system call
 
@@ -313,27 +313,3 @@ hi
 这里应该内存部分的课程内容就全部结束了吧，后面还有几个Lab。虚拟内存这部分是我这门课遇到的第一个坎，这三节花了很长很长时间。
 
 这节课中Frans说了好几次，当我们理解`page fault handler`中可以动态更新`page table`，才能理解虚拟内存有多强大。确实上到这里才意识到`page fault handler`才是整个虚拟内存系统的核心枢纽，通过它可以实现非常多高级的内存管理功能，这些功能主要在于它赋予了虚拟内存系统非常高的灵活性，可以随时按照需求调整，同时还能保存安全与隔离。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
